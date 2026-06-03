@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>動物疊疊樂 - Stacking Capybara & Friends</title>
+    <!-- Google Fonts: Fredoka is extremely cute and rounded -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300..700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-wrapper">
+        <div id="game-container">
+            <!-- Canvas where game will be rendered -->
+            <canvas id="game-canvas"></canvas>
+
+            <!-- Start Screen Overlay -->
+            <div id="start-screen" class="overlay active">
+                <div class="title-container">
+                    <h1 class="game-title">動物疊疊樂</h1>
+                    <p class="game-subtitle">Animal Stack!</p>
+                </div>
+                <div class="character-preview">
+                    <!-- Cute SVG Animated Capybara in HTML directly for wow factor -->
+                    <svg viewBox="0 0 200 150" class="floating-capy">
+                        <!-- Capybara body -->
+                        <ellipse cx="100" cy="90" rx="60" ry="40" fill="#a07050" />
+                        <ellipse cx="60" cy="70" rx="30" ry="25" fill="#a07050" />
+                        <!-- Snout -->
+                        <path d="M 30 70 Q 30 90 50 85" stroke="#7a5035" stroke-width="4" fill="none" />
+                        <!-- Nose -->
+                        <ellipse cx="38" cy="70" rx="5" ry="4" fill="#503020" />
+                        <!-- Ear -->
+                        <ellipse cx="80" cy="50" rx="10" ry="12" fill="#7a5035" transform="rotate(-10 80 50)" />
+                        <!-- Sleepy Eye -->
+                        <path d="M 54 62 L 64 62" stroke="#503020" stroke-width="3" stroke-linecap="round" />
+                        <path d="M 52 65 L 56 68" stroke="#503020" stroke-width="2" stroke-linecap="round" />
+                        <!-- Little feet -->
+                        <ellipse cx="60" cy="130" rx="12" ry="8" fill="#7a5035" />
+                        <ellipse cx="130" cy="130" rx="12" ry="8" fill="#7a5035" />
+                        <!-- Mandarin orange on head -->
+                        <circle cx="80" cy="30" r="14" fill="#ff9f1c" />
+                        <ellipse cx="80" cy="18" rx="3" ry="5" fill="#2ec4b6" transform="rotate(30 80 18)" />
+                    </svg>
+                </div>
+                <button id="start-btn" class="btn pulse">開始遊戲</button>
+                <div class="highscore-display">最高紀錄: <span id="start-highscore">0</span> m</div>
+            </div>
+
+            <!-- HUD (Heads-Up Display) -->
+            <div id="hud" class="hidden">
+                <div class="hud-left">
+                    <div class="hud-score-card">
+                        <span class="label">高度</span>
+                        <span id="score-val">0.0</span><span class="unit">m</span>
+                    </div>
+                    <div class="hud-count-card">
+                        <span id="count-val">0</span><span> 隻</span>
+                    </div>
+                </div>
+                
+                <div class="hud-right">
+                    <div class="next-preview-box">
+                        <span class="preview-label">下一個</span>
+                        <div id="next-preview-canvas-container">
+                            <canvas id="preview-canvas" width="60" height="60"></canvas>
+                        </div>
+                    </div>
+                    <button id="pause-btn" class="icon-btn">
+                        <svg viewBox="0 0 24 24" width="24" height="24">
+                            <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+                            <rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Lives Container -->
+                <div id="lives-container">
+                    <div class="heart active"></div>
+                    <div class="heart active"></div>
+                    <div class="heart active"></div>
+                </div>
+            </div>
+
+            <!-- Pause Overlay -->
+            <div id="pause-screen" class="overlay hidden">
+                <h2 class="overlay-title">暫停中</h2>
+                <div class="btn-group">
+                    <button id="resume-btn" class="btn">繼續遊戲</button>
+                    <button id="restart-btn-pause" class="btn btn-secondary">重新開始</button>
+                    <button id="sound-btn" class="btn btn-secondary">
+                        音效: <span id="sound-status">開啟</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Game Over Overlay -->
+            <div id="game-over-screen" class="overlay hidden">
+                <div class="gameover-header">
+                    <h2 class="gameover-title">遊戲結束!</h2>
+                    <p class="gameover-sub">小動物們倒塌了！</p>
+                </div>
+                <div class="stats-container">
+                    <div class="stat-row">
+                        <span class="stat-label">本次高度</span>
+                        <span id="final-score" class="stat-val">0.0 m</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">堆疊數量</span>
+                        <span id="final-count" class="stat-val">0 隻</span>
+                    </div>
+                    <div id="new-record-banner" class="new-record hidden">
+                        🎉 創下新紀錄！
+                    </div>
+                </div>
+                <button id="restart-btn" class="btn pulse">再玩一次</button>
+                <button id="home-btn" class="btn btn-secondary">返回主選單</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Matter.js Physics Engine -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <!-- Game code -->
+    <script src="game.js"></script>
+</body>
+</html>
