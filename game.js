@@ -2,6 +2,28 @@
 // Animal Stack (動物疊疊樂) - Core Game Code
 // ==========================================
 
+// Audio Files preloaded
+const landAudio = new Audio('放上去的.mp3');
+landAudio.volume = 0.9; // Strengthened volume as requested
+const gameoverAudio = new Audio('失敗.mp3');
+gameoverAudio.volume = 0.7; // Standard gameover volume
+const collapseAudio = new Audio('動物塔倒掉.wav');
+collapseAudio.volume = 0.9; // Clear collapse sound effect
+const bgmAudio = new Audio('開場.mp3');
+bgmAudio.loop = true;
+bgmAudio.volume = 0.4; // Quieter BGM so SFX stand out!
+
+function playBGM() {
+    if (soundEnabled && bgmAudio.paused) {
+        return bgmAudio.play();
+    }
+    return Promise.resolve();
+}
+
+function stopBGM() {
+    bgmAudio.pause();
+}
+
 // Web Audio API Synthesizer for Retro Cute Sounds
 let audioCtx = null;
 let soundEnabled = true;
@@ -32,52 +54,21 @@ function playSound(type) {
         osc.frequency.setValueAtTime(180, now);
         osc.frequency.exponentialRampToValueAtTime(450, now + 0.15);
 
-        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.setValueAtTime(0.04, now);
         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
 
         osc.start(now);
         osc.stop(now + 0.15);
 
     } else if (type === 'land') {
-        // Bouncy "Plop/Squish"
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(200, now);
-        osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
-
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
-
-        osc.start(now);
-        osc.stop(now + 0.12);
+        // Play local MP3 file for successful placement
+        landAudio.currentTime = 0;
+        landAudio.play().catch(e => console.log("Audio play failed:", e));
 
     } else if (type === 'fail') {
-        // Lose life downward slide
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.linearRampToValueAtTime(120, now + 0.35);
-
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 700;
-        osc.disconnect(gain);
-        osc.connect(filter);
-        filter.connect(gain);
-
-        gain.gain.setValueAtTime(0.15, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-
-        osc.start(now);
-        osc.stop(now + 0.35);
+        // Play local WAV file for tower collapse / fall failure
+        collapseAudio.currentTime = 0;
+        collapseAudio.play().catch(e => console.log("Audio play failed:", e));
 
     } else if (type === 'cheer') {
         // Happy C-Major Arpeggio
@@ -93,7 +84,7 @@ function playSound(type) {
 
             const startT = now + idx * 0.08;
             gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.12, startT + 0.02);
+            gain.gain.linearRampToValueAtTime(0.015, startT + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, startT + 0.22);
 
             osc.start(startT);
@@ -101,25 +92,9 @@ function playSound(type) {
         });
 
     } else if (type === 'gameover') {
-        // Sad minor arpeggio
-        const notes = [392.00, 311.13, 261.63, 196.00]; // G4, Eb4, C4, G3
-        notes.forEach((freq, idx) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-
-            osc.type = 'triangle';
-            osc.frequency.value = freq;
-
-            const startT = now + idx * 0.15;
-            gain.gain.setValueAtTime(0, now);
-            gain.gain.linearRampToValueAtTime(0.12, startT + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.001, startT + 0.45);
-
-            osc.start(startT);
-            osc.stop(startT + 0.45);
-        });
+        // Play local MP3 file for game over
+        gameoverAudio.currentTime = 0;
+        gameoverAudio.play().catch(e => console.log("Audio play failed:", e));
     }
 }
 
@@ -1196,6 +1171,13 @@ let particles = [];
 let screenShakeTime = 0;
 let screenShakeIntensity = 0;
 
+// Tower Wobble Globals
+let towerWobbleAngle = 0;
+let towerWobbleVelocity = 0;
+let towerStaticLean = 0;
+
+let isTransitioningToGameOver = false;
+
 // Milestone overlay details
 let milestoneText = "";
 let milestoneTimer = 0;
@@ -1268,6 +1250,11 @@ window.addEventListener('load', () => {
         soundEnabled = !soundEnabled;
         document.getElementById('sound-status').innerText = soundEnabled ? '開啟' : '關閉';
         initAudio();
+        if (soundEnabled) {
+            playBGM();
+        } else {
+            stopBGM();
+        }
     });
 
     // Tap/Click to drop
@@ -1277,14 +1264,44 @@ window.addEventListener('load', () => {
         handleDropInput();
     });
 
+    // Start BGM on first user interaction (safeguarded against browser autoplay blocking)
+    const startBGMOnInteraction = () => {
+        if (gameState === 'START' || gameState === 'PLAYING') {
+            const playPromise = playBGM();
+            if (playPromise) {
+                playPromise.then(() => {
+                    // Remove listeners only if BGM started successfully
+                    window.removeEventListener('click', startBGMOnInteraction);
+                    window.removeEventListener('touchstart', startBGMOnInteraction);
+                }).catch(() => {
+                    console.log("Autoplay block active; waiting for user gesture.");
+                });
+            }
+        }
+    };
+    window.addEventListener('click', startBGMOnInteraction);
+    window.addEventListener('touchstart', startBGMOnInteraction);
+
     // Render loop initial start screen graphics
     drawStartScreenBackground();
+
+    // Try to play BGM immediately on load (in case browser allows autoplay)
+    playBGM().then(() => {
+        // If autoplay succeeded, remove the interaction listeners
+        window.removeEventListener('click', startBGMOnInteraction);
+        window.removeEventListener('touchstart', startBGMOnInteraction);
+    }).catch(() => {
+        console.log("BGM autoplay blocked on load; will play on first click.");
+    });
 });
 
 // Start the game loop
 function startGame() {
     initAudio();
     gameState = 'PLAYING';
+    
+    // Play BGM
+    playBGM();
     
     // Hide screens
     document.getElementById('start-screen').classList.add('hidden');
@@ -1334,6 +1351,12 @@ function resetGame() {
     cameraY = 0;
     targetCameraY = 0;
     lastDropTime = 0;
+    isTransitioningToGameOver = false;
+
+    // Reset tower wobble globals
+    towerWobbleAngle = 0;
+    towerWobbleVelocity = 0;
+    towerStaticLean = 0;
 
     // UI resets
     document.getElementById('score-val').innerText = "0.0";
@@ -1368,6 +1391,14 @@ function update(timestamp) {
                 }
             }
         });
+
+        // Update visual wobble for the entire tower
+        const k = 0.05; // Spring stiffness
+        const damping = 0.94; // Spring damping factor
+        const acceleration = -k * (towerWobbleAngle - towerStaticLean);
+        towerWobbleVelocity += acceleration;
+        towerWobbleVelocity *= damping;
+        towerWobbleAngle += towerWobbleVelocity;
 
         // Update Spawner Floating position
         // The speed slightly increases as score goes higher to add a small challenge!
@@ -1410,7 +1441,7 @@ function update(timestamp) {
 // Input / Spawning Logic
 // ==========================================
 function handleDropInput() {
-    if (gameState !== 'PLAYING') return;
+    if (gameState !== 'PLAYING' || isTransitioningToGameOver) return;
 
     const now = Date.now();
     if (now - lastDropTime < DROP_COOLDOWN) return; // Prevent double taps during animation
@@ -1475,33 +1506,78 @@ function handleAnimalLanding(body, pair) {
         
         // It must collide with the static platform OR any already landed animal in the stack!
         if (otherBody && (otherBody.isStatic || otherBody.hasLanded)) {
-            // Check horizontal overlap
-            const dx = Math.abs(body.position.x - otherBody.position.x);
+            // Calculate overlap and check if it exceeds one-third of the landing animal's width
+            const activeTemplate = ANIMAL_TEMPLATES.find(t => t.id === body.templateId);
+            const activeWidth = activeTemplate ? activeTemplate.width : 96;
             const otherWidth = otherBody.templateId ? 
                 ANIMAL_TEMPLATES.find(t => t.id === otherBody.templateId).width : 280; // platform is 280
 
-            // If the center of the falling animal is past 67% of the supporting animal's width, it slips off!
-            if (dx > otherWidth * 0.67) {
-                // Slip off behavior: push it sideways
-                const pushDir = (body.position.x > otherBody.position.x) ? 1 : -1;
-                
-                // Zero friction to slide off like ice
-                body.friction = 0;
-                body.frictionStatic = 0;
-                
-                // Disable collision with the stack so it falls through cleanly
-                body.collisionFilter.mask = 0;
-                
-                // Give a strong sideways push
-                Body.setVelocity(body, { x: pushDir * 4.0, y: -0.5 });
-                
+            const dx = Math.abs(body.position.x - otherBody.position.x);
+            const overlap = Math.max(0, (activeWidth + otherWidth) / 2 - dx);
+
+            // If the overlap is less than 1/3 of the landing animal's width, the entire tower collapses!
+            if (overlap < activeWidth / 3) {
+                // Collapse the entire tower!
+                lives--;
+                updateHeartsUI();
                 playSound('fail');
-                body.gameState = 'unstable'; // Worried face
+                triggerScreenShake(600, 18);
+
+                // Unfreeze and collapse all animals in the stack
+                activeAnimals.forEach(a => {
+                    Body.setStatic(a, false);
+                    a.gameState = 'dizzy'; // Show dizzy expressions
+                    a.ignoreLifeDeduction = true; // Prevent checkOutOfBounds from deducting lives again
+                    a.collisionFilter.mask = 0; // Disable all collisions so they fall through the platform!
+                    
+                    // Give an outward push
+                    const pushDir = (a.position.x > CANVAS_WIDTH / 2) ? 1 : -1;
+                    Body.setVelocity(a, { x: pushDir * (Math.random() * 2 + 1), y: -2 });
+                    Body.setAngularVelocity(a, (Math.random() - 0.5) * 0.1);
+                });
+
+                // Also make the landing animal fall down dizzy and fall through the platform
+                body.gameState = 'dizzy';
+                body.ignoreLifeDeduction = true;
+                body.collisionFilter.mask = 0; // Disable collisions
+                const pushDir = (body.position.x > otherBody.position.x) ? 1 : -1;
+                Body.setVelocity(body, { x: pushDir * 3, y: -2 });
+
+                // Check game over
+                if (lives <= 0) {
+                    isTransitioningToGameOver = true;
+                    setTimeout(() => {
+                        triggerGameOver();
+                    }, 1800);
+                }
             } else {
                 // Safe landing!
                 body.gameState = 'landed';
                 body.hasLanded = true;
-                body.landingOffset = dx; // Store landing offset for wobble animation!
+                body.landingOffset = body.position.x - otherBody.position.x; // Store signed landing offset for wobble animation!
+                body.parentBody = otherBody; // Store parent body for hierarchical wobble propagation!
+                body.wobbleAngle = 0;
+                body.wobbleVelocity = 0;
+
+                // Update tower static lean based on cumulative offset of all landed animals
+                let totalOffset = 0;
+                let landedCount = 0;
+                activeAnimals.forEach(a => {
+                    if (a.hasLanded) {
+                        totalOffset += (a.landingOffset || 0);
+                        landedCount++;
+                    }
+                });
+                towerStaticLean = landedCount > 0 ? (totalOffset / landedCount) * 0.0008 : 0;
+
+                // Kick the wobble of the entire tower if not perfectly aligned!
+                const alignmentTolerance = 3.0; // pixels
+                if (dx > alignmentTolerance) {
+                    const kickDirection = Math.sign(body.landingOffset);
+                    const kickIntensity = Math.min(0.08, dx * 0.0035); // proportional to offset
+                    towerWobbleVelocity += kickDirection * kickIntensity;
+                }
+
                 stackedCount++;
                 document.getElementById('count-val').innerText = stackedCount;
 
@@ -1581,6 +1657,13 @@ function checkOutOfBounds() {
         if (animal.isStatic) continue;
 
         if (animal.position.y > limitY) {
+            if (animal.ignoreLifeDeduction) {
+                // Clean up silently without deducting lives
+                World.remove(world, animal);
+                activeAnimals.splice(i, 1);
+                continue;
+            }
+
             // Deduct life
             lives--;
             updateHeartsUI();
@@ -1598,7 +1681,10 @@ function checkOutOfBounds() {
 
             // Game over check
             if (lives <= 0) {
-                triggerGameOver();
+                isTransitioningToGameOver = true;
+                setTimeout(() => {
+                    triggerGameOver();
+                }, 1800);
             }
         }
     }
@@ -1614,6 +1700,14 @@ function triggerScreenShake(duration, intensity) {
 // ==========================================
 function triggerGameOver() {
     gameState = 'GAMEOVER';
+    stopBGM();
+
+    // Stop the collapse audio to prevent overlap with the game over sound!
+    if (typeof collapseAudio !== 'undefined') {
+        collapseAudio.pause();
+        collapseAudio.currentTime = 0;
+    }
+
     playSound('gameover');
 
     // Show Game Over overlay
@@ -1621,8 +1715,13 @@ function triggerGameOver() {
     document.getElementById('final-count').innerText = stackedCount + " 隻";
 
     const recordBanner = document.getElementById('new-record-banner');
-    if (score > highscore) {
-        highscore = score;
+    
+    // Compare rounded to 1 decimal place (matching what is displayed on screen)
+    const displayScore = parseFloat(score.toFixed(1));
+    const displayHighscore = parseFloat(highscore.toFixed(1));
+
+    if (displayScore > displayHighscore) {
+        highscore = score; // Update to exact score
         localStorage.setItem('animal_stack_highscore', highscore);
         recordBanner.classList.remove('hidden');
     } else {
@@ -1654,6 +1753,7 @@ function togglePause() {
 
 function returnToHome() {
     gameState = 'START';
+    playBGM();
     document.getElementById('game-over-screen').classList.add('hidden');
     document.getElementById('pause-screen').classList.add('hidden');
     document.getElementById('hud').classList.add('hidden');
@@ -1668,6 +1768,11 @@ function returnToHome() {
     }
     activeAnimals = [];
     particles = [];
+
+    // Reset tower wobble globals
+    towerWobbleAngle = 0;
+    towerWobbleVelocity = 0;
+    towerStaticLean = 0;
 }
 
 // ==========================================
@@ -1689,22 +1794,91 @@ function render() {
     // 2. Draw Platform
     drawPlatform();
 
-    // 3. Draw Stacked Animals
-    activeAnimals.forEach(animal => {
+    // 3. Draw Stacked Animals (with cumulative visual wobble / sway kinematics)
+    // Sort from bottom to top so ancestors are calculated before their children
+    const sortedAnimals = [...activeAnimals].sort((b1, b2) => b2.position.y - b1.position.y);
+    
+    sortedAnimals.forEach(animal => {
         const template = ANIMAL_TEMPLATES.find(t => t.id === animal.templateId);
         if (!template) return;
+
+        const aHeight = template.height;
+        let renderX = animal.position.x;
+        let renderY = animal.position.y;
+        let totalWobbleAngle = animal.angle || 0;
+
+        if (animal.hasLanded) {
+            const p = animal.parentBody;
+            const parentIsAnimal = p && !p.isStatic && p.hasLanded && activeAnimals.includes(p);
+            
+            // The bottom-most animal gets 100% of the towerWobbleAngle.
+            // Higher animals get a smaller relative wobble angle so they bend smoothly.
+            const wAngle = parentIsAnimal ? towerWobbleAngle * 0.35 : towerWobbleAngle;
+
+            if (!parentIsAnimal) {
+                // Landed directly on the platform (base anchor)
+                totalWobbleAngle = (animal.angle || 0) + wAngle;
+                
+                const rx = 0;
+                const ry = -aHeight / 2;
+                
+                const rxPrime = rx * Math.cos(totalWobbleAngle) - ry * Math.sin(totalWobbleAngle);
+                const ryPrime = rx * Math.sin(totalWobbleAngle) + ry * Math.cos(totalWobbleAngle);
+                
+                animal.totalWobbleAngle = totalWobbleAngle;
+                animal.totalWobbleX = rxPrime - rx;
+                animal.totalWobbleY = ryPrime - ry;
+                
+                renderX = animal.position.x + animal.totalWobbleX;
+                renderY = animal.position.y + animal.totalWobbleY;
+            } else {
+                // Landed on another animal (p is already processed and has totalWobbleAngle / totalWobbleX / totalWobbleY)
+                totalWobbleAngle = (p.totalWobbleAngle || p.angle || 0) + wAngle;
+                
+                const rx = animal.position.x - p.position.x;
+                const ry = (animal.position.y + aHeight / 2) - p.position.y;
+                
+                const pAngle = p.totalWobbleAngle || p.angle || 0;
+                const rxPrime = rx * Math.cos(pAngle) - ry * Math.sin(pAngle);
+                const ryPrime = rx * Math.sin(pAngle) + ry * Math.cos(pAngle);
+                
+                const displacedPivotX = p.position.x + (p.totalWobbleX || 0) + rxPrime;
+                const displacedPivotY = p.position.y + (p.totalWobbleY || 0) + ryPrime;
+                
+                const cxLocal = 0;
+                const cyLocal = -aHeight / 2;
+                
+                const cxPrime = cxLocal * Math.cos(totalWobbleAngle) - cyLocal * Math.sin(totalWobbleAngle);
+                const cyPrime = cxLocal * Math.sin(totalWobbleAngle) + cyLocal * Math.cos(totalWobbleAngle);
+                
+                renderX = displacedPivotX + cxPrime;
+                renderY = displacedPivotY + cyPrime;
+                
+                animal.totalWobbleAngle = totalWobbleAngle;
+                animal.totalWobbleX = renderX - animal.position.x;
+                animal.totalWobbleY = renderY - animal.position.y;
+            }
+        } else {
+            // Not landed yet (still falling)
+            animal.totalWobbleAngle = animal.angle || 0;
+            animal.totalWobbleX = 0;
+            animal.totalWobbleY = 0;
+        }
 
         // Check horizontal overlap expression
         let currentExpr = animal.gameState;
         if (currentExpr === 'landed') {
-            if (!animal.isStatic && Math.abs(animal.velocity.x) > 0.05) {
-                currentExpr = 'unstable';
+            const wAngle = Math.abs(towerWobbleAngle); // check global wobble for facial expressions
+            if (wAngle > 0.05) {
+                currentExpr = 'dizzy'; // dizzy if wobbling a lot
+            } else if (wAngle > 0.015 || (!animal.isStatic && Math.abs(animal.velocity.x) > 0.05)) {
+                currentExpr = 'unstable'; // worried/unstable if wobbling slightly
             }
         }
 
         ctx.save();
-        ctx.translate(animal.position.x, animal.position.y - cameraY);
-        ctx.rotate(animal.angle);
+        ctx.translate(renderX, renderY - cameraY);
+        ctx.rotate(totalWobbleAngle);
         template.draw(ctx, template.width, template.height, currentExpr);
         ctx.restore();
     });
